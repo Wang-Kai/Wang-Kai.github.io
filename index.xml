@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Stay foolish</title>
+    <link>https://wang-kai.github.io/</link>
+    <description>Recent content on Stay foolish</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>cn</language>
+    <lastBuildDate>Sun, 22 Jan 2023 19:44:22 +0800</lastBuildDate><atom:link href="https://wang-kai.github.io/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>K8s RBAC 体系中的 User 和 Group</title>
+      <link>https://wang-kai.github.io/posts/k8s-rbac-for-user-and-group/</link>
+      <pubDate>Sun, 22 Jan 2023 19:44:22 +0800</pubDate>
+      
+      <guid>https://wang-kai.github.io/posts/k8s-rbac-for-user-and-group/</guid>
+      <description>K8s RBAC 体系中，可以作为授权对象的有 3 个类型：User、Group、ServiceAccount。
+ServiceAccout 作为 K8s 的一种资源类型，有具体的 API 可以操作，本文主要介绍没有具体资源定义，又相对查看困难的 User 、Group 两个对象。
+  K8s RBAC model  如何创建 User 和 Group？ 1. 签发 X509 Client 证书 通过 CA 签发证书，apiserver auth 逻辑会解析证书的 subject 对象，把其中 common_name（CN） 作为 User，organization （O） 作为 Group。例如：kubeconfig 所使用证书的内容（通过 cfssl-certinfo -cert admin.pem 查看）
+{  &amp;#34;subject&amp;#34;: {  &amp;#34;common_name&amp;#34;: &amp;#34;kubernetes-admin&amp;#34;,  &amp;#34;organization&amp;#34;: &amp;#34;system:masters&amp;#34;,  &amp;#34;names&amp;#34;: [  &amp;#34;system:masters&amp;#34;,  &amp;#34;kubernetes-admin&amp;#34;  ]  },  ... } 在这个例子中，User 就是 kubernetes-admin，Group 是 system:masters，其他字段暂可忽略。</description>
+    </item>
+    
+    <item>
+      <title>Linux free 命令的使用与理解</title>
+      <link>https://wang-kai.github.io/posts/linux_free_command/</link>
+      <pubDate>Sun, 29 May 2022 12:03:32 +0800</pubDate>
+      
+      <guid>https://wang-kai.github.io/posts/linux_free_command/</guid>
+      <description>在使用 linux 操作系统时，常见的需求就是查看内存使用情况，比如分析系统健康状况，或者确定机器是否可以部署更多新的业务等等，这是一个常见的需求。
+解决这个问题也很简单，多数云厂商提供的控制台都会展示各种机器指标的监控信息，内存使用率监控肯定是必不可少的。对 linux 了解一点的，也可以通过 free 命令来查看更详细的信息。当执行 free 命令的时候，不知道是否和我有同样的困惑：
+ 打印的这么多列具体都代表什么意思？这些列之间的关系是怎样的？ 内存可用率要看哪个指标？free 还是 available？  一、free 命令的基础使用 基础使用：free [options]
+常用参数：
+ -h human-readable 格式打印 -w 把 cache &amp;amp; buffer 分开打印 -t show total for RAM + swap  $ free -wth  total used free shared buffers cache available Mem: 125G 6.5G 87G 1.3G 3.5M 30G 116G Swap: 0B 0B 0B Total: 125G 6.5G 87G 二、free 命令各列的含义 free 命令打印的信息来自 /proc/meminfo （/proc 不是一个存在于物理磁盘上的目录，而是用于提供内核信息的一个虚拟目录），通过解析文件内容来展示物理内存、Swap 内存的使用情况。</description>
+    </item>
+    
+    <item>
+      <title>About Me</title>
+      <link>https://wang-kai.github.io/about/</link>
+      <pubDate>Wed, 04 May 2022 19:09:32 +0800</pubDate>
+      
+      <guid>https://wang-kai.github.io/about/</guid>
+      <description>It is wonderful to be here with you. My name is Steve Wang, I live in Shanghai, China. You know, Steve Jobs the founder of Apple Inc is creative and aspirational, he had great and enduring contributions to the world, my English name comes from him.
+  Work from home in Shanghai during COVID-19  I am a programmer, which is just a job for making a living sometimes. But I still want to dedicate something to the world, so I created the blog.</description>
+    </item>
+    
+    <item>
+      <title>go-querystring：把结构体转为 URL query string 的利器</title>
+      <link>https://wang-kai.github.io/posts/go_querystring/</link>
+      <pubDate>Tue, 03 May 2022 11:31:43 +0800</pubDate>
+      
+      <guid>https://wang-kai.github.io/posts/go_querystring/</guid>
+      <description>需求场景 后端服务在调用第三方 API 的时候，常见的需求就是构建 URL query string。在 go 标准包中有 net/url 来解决这个问题，url.Values 的本质是一个 map[string][]string， 且提供一系列方法(Add、Del、Set)来操作参数，最终通过 Encode() 方法把 map 转为 URL query string。但其中会牵扯到一些重复性工作，比如：
+ 类型转换，要把 int、bool 等转为 string 判断字段是否空或零值的处理逻辑  针对这个问题，google 开源的 go-querystring 可以优雅简洁的解决这类重复性工作。
+使用介绍 整个 go-querystring 库对外仅暴露了一个方法 func Values(v interface{}) (url.Values, error)，该方法接收一个结构体，返回值是一个填充好数据的 url.Values。
+默认的，URL query string 中 key 值是结构体字段名。如果字段不需要被编码，可以写上 url:&amp;quot;-&amp;quot; ，对于需要忽略空值的场景，要加上 omitempty，实例如下：
+type GetPodsReq struct { 	ClusterID int64 `form:&amp;#34;cluster_id&amp;#34; url:&amp;#34;cluster_id,omitempty&amp;#34;` 	Nodenames string `form:&amp;#34;nodenames&amp;#34; url:&amp;#34;nodenames,omitempty&amp;#34;` 	Selector string `form:&amp;#34;selector&amp;#34; url:&amp;#34;selector,omitempty&amp;#34;` 	Hostnames string `form:&amp;#34;hostnames&amp;#34; url:&amp;#34;hostnames,omitempty&amp;#34;` } 将结构体转为 query string 十分简单，仅需要一个 Values 方法调用即可把结构体转为 url.</description>
+    </item>
+    
+  </channel>
+</rss>
