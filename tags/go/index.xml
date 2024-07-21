@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Go on Stay foolish</title>
+    <link>https://wang-kai.github.io/tags/go/</link>
+    <description>Recent content in Go on Stay foolish</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>cn</language>
+    <lastBuildDate>Tue, 03 May 2022 11:31:43 +0800</lastBuildDate><atom:link href="https://wang-kai.github.io/tags/go/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>go-querystring：把结构体转为 URL query string 的利器</title>
+      <link>https://wang-kai.github.io/posts/go_querystring/</link>
+      <pubDate>Tue, 03 May 2022 11:31:43 +0800</pubDate>
+      
+      <guid>https://wang-kai.github.io/posts/go_querystring/</guid>
+      <description>需求场景 后端服务在调用第三方 API 的时候，常见的需求就是构建 URL query string。在 go 标准包中有 net/url 来解决这个问题，url.Values 的本质是一个 map[string][]string， 且提供一系列方法(Add、Del、Set)来操作参数，最终通过 Encode() 方法把 map 转为 URL query string。但其中会牵扯到一些重复性工作，比如：
+ 类型转换，要把 int、bool 等转为 string 判断字段是否空或零值的处理逻辑  针对这个问题，google 开源的 go-querystring 可以优雅简洁的解决这类重复性工作。
+使用介绍 整个 go-querystring 库对外仅暴露了一个方法 func Values(v interface{}) (url.Values, error)，该方法接收一个结构体，返回值是一个填充好数据的 url.Values。
+默认的，URL query string 中 key 值是结构体字段名。如果字段不需要被编码，可以写上 url:&amp;quot;-&amp;quot; ，对于需要忽略空值的场景，要加上 omitempty，实例如下：
+type GetPodsReq struct { 	ClusterID int64 `form:&amp;#34;cluster_id&amp;#34; url:&amp;#34;cluster_id,omitempty&amp;#34;` 	Nodenames string `form:&amp;#34;nodenames&amp;#34; url:&amp;#34;nodenames,omitempty&amp;#34;` 	Selector string `form:&amp;#34;selector&amp;#34; url:&amp;#34;selector,omitempty&amp;#34;` 	Hostnames string `form:&amp;#34;hostnames&amp;#34; url:&amp;#34;hostnames,omitempty&amp;#34;` } 将结构体转为 query string 十分简单，仅需要一个 Values 方法调用即可把结构体转为 url.</description>
+    </item>
+    
+  </channel>
+</rss>

@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Stay foolish</title>
+    <link>https://wang-kai.github.io/</link>
+    <description>Recent content on Stay foolish</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>cn</language>
+    <lastBuildDate>Sun, 21 Jul 2024 16:06:37 +0800</lastBuildDate><atom:link href="https://wang-kai.github.io/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>K8s controller workqueue 源码学习</title>
+      <link>https://wang-kai.github.io/posts/k8s-workqueue/</link>
+      <pubDate>Sun, 21 Jul 2024 16:06:37 +0800</pubDate>
+      
+      <guid>https://wang-kai.github.io/posts/k8s-workqueue/</guid>
+      <description>在写 K8s controller 的过程中，我们一定会用到 queue，这也是 K8s controller 推荐的范式。本文从源码剖析 K8s client-go 中 workqueue 的底层实现。
+ 最底层：满足特定需求的基础 workqueue 第二层：延迟队列 delaying queue 第三层：限速队列 rate limiting queue  最底层：满足特定需求的基础 workqueue k8s.io/client-go/util/workqueue 最基础的 queue 具备以下能力：
+ FIFO，元素被处理的顺序与其加入队列的顺序一致 严格限制一个元素不会被并行多次处理。如果一个元素在被处理前多次 enqueue，也会只被处理一次 支持多生产者和消费者。即便一个元素正在被处理，也支持将其重新加入队列 队列关闭通知。  // Package workqueue provides a simple queue that supports the following // features: // * Fair: items processed in the order in which they are added. // * Stingy: a single item will not be processed multiple times concurrently, // and if an item is added multiple times before it can be processed, it // will only be processed once.</description>
+    </item>
+    
+    <item>
+      <title>K8s informer DeletedFinalStateUnknown 对象的来源与处理</title>
+      <link>https://wang-kai.github.io/posts/k8s-controller-deletedfinalstateunknown/</link>
+      <pubDate>Sun, 30 Jun 2024 17:45:09 +0800</pubDate>
+      
+      <guid>https://wang-kai.github.io/posts/k8s-controller-deletedfinalstateunknown/</guid>
+      <description>之前生产环境 volcano 使用遇到一个问题，大致现象是：偶发出现一个 job 被删除了，但相关操作并未执行。最终通过 diff 旧版本与 volcano 最新版本，发现旧版本中未针对 DeletedFinalStateUnknown 场景做判断和处理，仿照新版本加上这段处理逻辑后问题修复。那么 DeletedFinalStateUnknown 对象是如何产生的？ controller 应该如何对其处理？作本文以记之。
+来源：watch 断连丢失数据的补偿机制 在整个 controller 运行中，reflector 组件通过 ListWatch 机制直接与 apiserver 交互，将数据顺序写入 DetlaFIFO。
+ListWatch 机制简介 reflector 源码约 600 行，其中最主要的函数就是 ListAndWatch 和 watchHandler，这两个函数加起来足以阐述 ListWatch 机制。其大致分为两步：
+ 通过 List 方法从 apiserver 请求到全量的资源对象，并通过 Replace 方法将对象写入 DeltaFIFO 队列 第一步中 List 同时拿到了最新的资源版本，然后调用 Watch 方法异步接收该版本之后的资源对象事件，根据事件类型调用不同方法将对象写入 DeltaFIFO 队列  除非遇到特别错误或收到停止信号，watch 过程中断连会重新执行 List 步骤，然后继续建立长连接 watch。但在重新 watch 的过程中就会遇到一个问题：如果资源对象在中断过程中被删除了，那么如何让 controller 知道对象已被删除呢？DeletedFinalStateUnknown 就是该问题的一个补偿方案。
+Reflector 只负责与 apiserver 通信并将数据存入 DetlaFIFO 内，其中 List 得到的全量最新数据通过 Replace 方法写入，Watch 得到的数据通过 Add/Update/Delete 方法写入。可以说，List 执行结束后拿到的数据是那个时间点最新的数据，如果缓存中有数据不在其中，则表示数据已经被删除。</description>
+    </item>
+    
+    <item>
+      <title>K8s RBAC 体系中的 User 和 Group</title>
+      <link>https://wang-kai.github.io/posts/k8s-rbac-for-user-and-group/</link>
+      <pubDate>Sun, 22 Jan 2023 19:44:22 +0800</pubDate>
+      
+      <guid>https://wang-kai.github.io/posts/k8s-rbac-for-user-and-group/</guid>
+      <description>K8s RBAC 体系中，可以作为授权对象的有 3 个类型：User、Group、ServiceAccount。
+ServiceAccout 作为 K8s 的一种资源类型，有具体的 API 可以操作，本文主要介绍没有具体资源定义，又相对查看困难的 User 、Group 两个对象。
+  K8s RBAC model  如何创建 User 和 Group？ 1. 签发 X509 Client 证书 通过 CA 签发证书，apiserver auth 逻辑会解析证书的 subject 对象，把其中 common_name（CN） 作为 User，organization （O） 作为 Group。例如：kubeconfig 所使用证书的内容（通过 cfssl-certinfo -cert admin.pem 查看）
+{  &amp;#34;subject&amp;#34;: {  &amp;#34;common_name&amp;#34;: &amp;#34;kubernetes-admin&amp;#34;,  &amp;#34;organization&amp;#34;: &amp;#34;system:masters&amp;#34;,  &amp;#34;names&amp;#34;: [  &amp;#34;system:masters&amp;#34;,  &amp;#34;kubernetes-admin&amp;#34;  ]  },  ... } 在这个例子中，User 就是 kubernetes-admin，Group 是 system:masters，其他字段暂可忽略。</description>
+    </item>
+    
+    <item>
+      <title>Linux free 命令的使用与理解</title>
+      <link>https://wang-kai.github.io/posts/linux_free_command/</link>
+      <pubDate>Sun, 29 May 2022 12:03:32 +0800</pubDate>
+      
+      <guid>https://wang-kai.github.io/posts/linux_free_command/</guid>
+      <description>在使用 linux 操作系统时，常见的需求就是查看内存使用情况，比如分析系统健康状况，或者确定机器是否可以部署更多新的业务等等，这是一个常见的需求。
+解决这个问题也很简单，多数云厂商提供的控制台都会展示各种机器指标的监控信息，内存使用率监控肯定是必不可少的。对 linux 了解一点的，也可以通过 free 命令来查看更详细的信息。当执行 free 命令的时候，不知道是否和我有同样的困惑：
+ 打印的这么多列具体都代表什么意思？这些列之间的关系是怎样的？ 内存可用率要看哪个指标？free 还是 available？  一、free 命令的基础使用 基础使用：free [options]
+常用参数：
+ -h human-readable 格式打印 -w 把 cache &amp;amp; buffer 分开打印 -t show total for RAM + swap  $ free -wth  total used free shared buffers cache available Mem: 125G 6.5G 87G 1.3G 3.5M 30G 116G Swap: 0B 0B 0B Total: 125G 6.5G 87G 二、free 命令各列的含义 free 命令打印的信息来自 /proc/meminfo （/proc 不是一个存在于物理磁盘上的目录，而是用于提供内核信息的一个虚拟目录），通过解析文件内容来展示物理内存、Swap 内存的使用情况。</description>
+    </item>
+    
+    <item>
+      <title>About Me</title>
+      <link>https://wang-kai.github.io/about/</link>
+      <pubDate>Wed, 04 May 2022 19:09:32 +0800</pubDate>
+      
+      <guid>https://wang-kai.github.io/about/</guid>
+      <description>It is wonderful to be here with you. My name is Steve Wang, I live in Shanghai, China. You know, Steve Jobs the founder of Apple Inc is creative and aspirational, he had great and enduring contributions to the world, my English name comes from him.
+  Work from home in Shanghai during COVID-19  I am a programmer, which is just a job for making a living sometimes. But I still want to dedicate something to the world, so I created the blog.</description>
+    </item>
+    
+    <item>
+      <title>go-querystring：把结构体转为 URL query string 的利器</title>
+      <link>https://wang-kai.github.io/posts/go_querystring/</link>
+      <pubDate>Tue, 03 May 2022 11:31:43 +0800</pubDate>
+      
+      <guid>https://wang-kai.github.io/posts/go_querystring/</guid>
+      <description>需求场景 后端服务在调用第三方 API 的时候，常见的需求就是构建 URL query string。在 go 标准包中有 net/url 来解决这个问题，url.Values 的本质是一个 map[string][]string， 且提供一系列方法(Add、Del、Set)来操作参数，最终通过 Encode() 方法把 map 转为 URL query string。但其中会牵扯到一些重复性工作，比如：
+ 类型转换，要把 int、bool 等转为 string 判断字段是否空或零值的处理逻辑  针对这个问题，google 开源的 go-querystring 可以优雅简洁的解决这类重复性工作。
+使用介绍 整个 go-querystring 库对外仅暴露了一个方法 func Values(v interface{}) (url.Values, error)，该方法接收一个结构体，返回值是一个填充好数据的 url.Values。
+默认的，URL query string 中 key 值是结构体字段名。如果字段不需要被编码，可以写上 url:&amp;quot;-&amp;quot; ，对于需要忽略空值的场景，要加上 omitempty，实例如下：
+type GetPodsReq struct { 	ClusterID int64 `form:&amp;#34;cluster_id&amp;#34; url:&amp;#34;cluster_id,omitempty&amp;#34;` 	Nodenames string `form:&amp;#34;nodenames&amp;#34; url:&amp;#34;nodenames,omitempty&amp;#34;` 	Selector string `form:&amp;#34;selector&amp;#34; url:&amp;#34;selector,omitempty&amp;#34;` 	Hostnames string `form:&amp;#34;hostnames&amp;#34; url:&amp;#34;hostnames,omitempty&amp;#34;` } 将结构体转为 query string 十分简单，仅需要一个 Values 方法调用即可把结构体转为 url.</description>
+    </item>
+    
+  </channel>
+</rss>
