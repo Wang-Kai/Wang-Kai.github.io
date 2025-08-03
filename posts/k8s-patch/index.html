@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="cn">
+  <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Hugo 0.148.2">
+  <title> K8s Patch | Stay foolish </title>
+  <meta name="description" content="A simple and concise hugo theme.">
+  <link rel="stylesheet" href="https://wang-kai.github.io/css/simpleness.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.1.0/github-markdown-light.css"
+    integrity="sha512-1d9gwwC3dNW3O+lGwY8zTQrh08a41Ejci46DdzY1aQbqi/7Qr8Asp4ycWPsoD52tKXKrgu8h/lSpig1aAkvlMw=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="canonical" href="https://wang-kai.github.io/posts/k8s-patch/">
+  <link rel="alternate" type="application/rss+xml" href="" title="Stay foolish">
+  
+  
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/css/all.min.css" rel="stylesheet">
+  
+  
+      <script async src="https://www.googletagmanager.com/gtag/js?id=G-HCT9PR8XKE"></script>
+      <script>
+        var doNotTrack = false;
+        if ( false ) {
+          var dnt = (navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack);
+          var doNotTrack = (dnt == "1" || dnt == "yes");
+        }
+        if (!doNotTrack) {
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'G-HCT9PR8XKE');
+        }
+      </script>
+  
+</head>
+<body class="container">
+  <nav class="navigation">
+  <div class="nav-left">
+    
+    <div class="nav-item nav-title">
+      <a href="https://wang-kai.github.io/"> Stay foolish</a>
+    </div>
+  </div>
+  <div class="nav-item nav-right fontawesome">
+    <div class="nav-item nav-menu">
+      
+      <a href="/about/"> About</a>
+      
+    </div>
+    <a href="https://github.com/wang-kai" target="_blank">
+      <i title="GitHub" class="fab fa-github"></i>
+    </a>
+  </div>
+</nav>
+
+  
+<article class="markdown-body">
+  <header class="post-header">
+    <h1 style="text-align: left; margin-left: 0; padding-left: 0;" >K8s Patch</h1>
+    <div class="post-metadata">
+    
+      <time datetime="2025-04-13T11:31:43&#43;08:00">April 13, 2025</time> &nbsp; 
+    
+    
+    
+    
+    
+      <i class="far fa-clock"></i>
+      
+      
+      
+      
+        3 min
+      
+      37 s
+      &nbsp;
+    
+    
+    </div>
+  </header>
+
+  
+
+  <div>
+    <h2 id="为什么要有-patch-">为什么要有 patch ？</h2>
+<p>K8s 使用乐观锁管理数据，当使用 update 更新资源对象的时候必须带上 <code>resourceVersion</code> ，这就需要先从 K8s 获取到最新的资源信息，修改字段后再提交给 K8s。如果 apiserver 发现版本比当前存的版本落后就会更新失败。patch 就没有这个问题，可以指定字段立即更新。</p>
+<h2 id="patch-操作的-3-种类型">Patch 操作的 3 种类型</h2>
+<p>执行 kubectl patch 命令时 <code>--type</code> 共有三个可选值，<code>strategic</code> 为默认值，其余还有 <code>json</code>、<code>merge</code>。</p>
+<h3 id="1-strategic-merge-patch-不支持自定义资源">1. Strategic merge patch (不支持自定义资源)</h3>
+<p>strategic 是默认的 patch 类型，通过命令行操作比较简单：写一个 YAML 指明要更新的字段然后执行即可。例如更新一个 deployment： <code>kubectl patch deploy patch-demo --patch-file patch-file.yaml</code>。最终行为结果是 replace 还是 merge 取决于被更新字段对 patch 行为的默认定义。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-yaml" data-lang="yaml"><span style="display:flex;"><span><span style="color:#ff79c6">spec</span>:
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">template</span>:
+</span></span><span style="display:flex;"><span>    <span style="color:#ff79c6">spec</span>:
+</span></span><span style="display:flex;"><span>      <span style="color:#ff79c6">containers</span>:
+</span></span><span style="display:flex;"><span>      - <span style="color:#ff79c6">name</span>: patch-demo-ctr
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">image</span>: uhub.service.ucloud.cn/library/redis:2.8.8
+</span></span></code></pre></div><p>比如 <code>pod.spec.containers</code> 的 patch 策略是 merge , patchMergeKey 为 name。上面这个 patch-file.yaml 提交后会针对 image name 为 patch-demo-ctr 的 container 项做合并。如果 patch-demo-ctr 的 container 不存在，则插入新的 container 到 containers List。  <code>Tolerations</code> 字段没有 patchStrategy tag ，所以其默认 patch 策略是 replace，直接做替换。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">type</span> PodSpec <span style="color:#8be9fd;font-style:italic">struct</span> {
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">...</span>  
+</span></span><span style="display:flex;"><span>  Tolerations []Toleration <span style="color:#f1fa8c">`json:&#34;tolerations,omitempty&#34; protobuf:&#34;bytes,22,opt,name=tolerations&#34;`</span>  
+</span></span><span style="display:flex;"><span>  Containers []Container `json:<span style="color:#f1fa8c">&#34;containers&#34;</span> patchStrategy:<span style="color:#f1fa8c">&#34;merge&#34;</span> patchMergeKey:<span style="color:#f1fa8c">&#34;name&#34;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">...</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="2-json-merge-patch">2. JSON Merge Patch</h3>
+<p>处理方式参照 <a href="https://datatracker.ietf.org/doc/html/rfc7386">RFC7386</a> ，大致思路就是：使用当前指定的字段替换原字段。比如下面这个 YAML ，将直接覆盖 containers 字段。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-yaml" data-lang="yaml"><span style="display:flex;"><span><span style="color:#ff79c6">spec</span>:
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">template</span>:
+</span></span><span style="display:flex;"><span>    <span style="color:#ff79c6">spec</span>:
+</span></span><span style="display:flex;"><span>      <span style="color:#ff79c6">containers</span>:
+</span></span><span style="display:flex;"><span>      - <span style="color:#ff79c6">name</span>: patch-demo-ctr-3
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">image</span>: gcr.io/google-samples/hello-app:2.0
+</span></span></code></pre></div><p>如果想删除一个字段的话，指定 value 为 null 即可，比如删除 deployment 内 pod 的 hostIPC 字段（patch file 也可以是 JSON 格式）。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-json" data-lang="json"><span style="display:flex;"><span>{<span style="color:#ff79c6">&#34;spec&#34;</span>:{<span style="color:#ff79c6">&#34;template&#34;</span>:{<span style="color:#ff79c6">&#34;spec&#34;</span>:{<span style="color:#ff79c6">&#34;hostIPC&#34;</span>: <span style="color:#ff79c6">null</span>}}}}
+</span></span></code></pre></div><h3 id="3-json-patch">3. JSON Patch</h3>
+<p>处理方式参照 <a href="https://tools.ietf.org/html/rfc6902">RFC6902</a>，会按照指定的 JSON 表达规范来执行修改操作。</p>
+<ul>
+<li>op: 可选值包括 add，remove，replace，move，test，copy</li>
+<li>path: 指定要更新的字段，字段层级间使用 <code>/</code> 分隔</li>
+<li>value: 要更新的目标值</li>
+</ul>
+<p>如下示例会针对 deployment 里的 pod 增加 hostIPC 字段为 true。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-json" data-lang="json"><span style="display:flex;"><span>[{
+</span></span><span style="display:flex;"><span>    <span style="color:#ff79c6">&#34;op&#34;</span>: <span style="color:#f1fa8c">&#34;add&#34;</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#ff79c6">&#34;path&#34;</span>: <span style="color:#f1fa8c">&#34;/spec/template/spec/hostIPC&#34;</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#ff79c6">&#34;value&#34;</span>: <span style="color:#ff79c6">true</span>
+</span></span><span style="display:flex;"><span>}]
+</span></span></code></pre></div><h2 id="对比与思考">对比与思考</h2>
+<p>patch 的三种方法各有优劣：</p>
+<ul>
+<li>如果比较明确的要修改、删除特定字段，则 JSON Patch 最好，因为其可读性很高，写在代码里十分清晰易懂。</li>
+<li>如果要局部替换，则 JSON Merge Patch 最简单直接</li>
+<li>如果对多个目标做修改，则 strategic merge patch 好用，因为一些字段（比如 containers）支持 patchMergeKey，可以做到修改数组内指定元素的字段。</li>
+</ul>
+
+  </div>
+
+  <footer class="post-footer">
+    
+
+    
+
+    
+    
+  </footer>
+  
+  <div class="comments">
+  <div class="comments">
+
+
+
+</div>
+  </div>
+</article>
+
+  <div class="foot">
+  
+  &copy; 2022 - 2025 &#183;
+  <a href="/"> Stay foolish </a> &#183;
+  Theme <a href="https://github.com/RainerChiang/simpleness">Simpleness</a> Powered by <a href="https://gohugo.io/">Hugo</a> &#183;
+  <a href="#"><i class="fas fa-chevron-up"></i></a>
+</div>
+</body>
+  <script src="/js/lazyload.min.js"></script>
+<script>
+  var lazyImage = new LazyLoad({container: document.getElementById('article')});
+</script>
+
+
+
+
+</html>

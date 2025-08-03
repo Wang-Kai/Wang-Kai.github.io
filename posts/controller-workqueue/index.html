@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="cn">
+  <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Hugo 0.148.2">
+  <title> K8s controller workqueue 源码学习 | Stay foolish </title>
+  <meta name="description" content="A simple and concise hugo theme.">
+  <link rel="stylesheet" href="https://wang-kai.github.io/css/simpleness.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.1.0/github-markdown-light.css"
+    integrity="sha512-1d9gwwC3dNW3O+lGwY8zTQrh08a41Ejci46DdzY1aQbqi/7Qr8Asp4ycWPsoD52tKXKrgu8h/lSpig1aAkvlMw=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="canonical" href="https://wang-kai.github.io/posts/controller-workqueue/">
+  <link rel="alternate" type="application/rss+xml" href="" title="Stay foolish">
+  
+  
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/css/all.min.css" rel="stylesheet">
+  
+  
+      <script async src="https://www.googletagmanager.com/gtag/js?id=G-HCT9PR8XKE"></script>
+      <script>
+        var doNotTrack = false;
+        if ( false ) {
+          var dnt = (navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack);
+          var doNotTrack = (dnt == "1" || dnt == "yes");
+        }
+        if (!doNotTrack) {
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'G-HCT9PR8XKE');
+        }
+      </script>
+  
+</head>
+<body class="container">
+  <nav class="navigation">
+  <div class="nav-left">
+    
+    <div class="nav-item nav-title">
+      <a href="https://wang-kai.github.io/"> Stay foolish</a>
+    </div>
+  </div>
+  <div class="nav-item nav-right fontawesome">
+    <div class="nav-item nav-menu">
+      
+      <a href="/about/"> About</a>
+      
+    </div>
+    <a href="https://github.com/wang-kai" target="_blank">
+      <i title="GitHub" class="fab fa-github"></i>
+    </a>
+  </div>
+</nav>
+
+  
+<article class="markdown-body">
+  <header class="post-header">
+    <h1 style="text-align: left; margin-left: 0; padding-left: 0;" >K8s controller workqueue 源码学习</h1>
+    <div class="post-metadata">
+    
+      <time datetime="2024-07-21T11:31:43&#43;08:00">July 21, 2024</time> &nbsp; 
+    
+    
+    
+    
+    
+      <i class="far fa-clock"></i>
+      
+      
+      
+      
+        9 min
+      
+      31 s
+      &nbsp;
+    
+    
+    </div>
+  </header>
+
+  
+
+  <div>
+    <p>在写 K8s controller 的过程中，我们一定会用到 queue，这也是 K8s controller 推荐的范式。本文从源码剖析 K8s client-go 中 workqueue 的底层实现。</p>
+<h2 id="最底层满足特定需求的基础-workqueue">最底层：满足特定需求的基础 workqueue</h2>
+<p><code>k8s.io/client-go/util/workqueue</code> 最基础的 queue 具备以下能力：</p>
+<ol>
+<li>FIFO，元素被处理的顺序与其加入队列的顺序一致</li>
+<li>严格限制一个元素不会被并行处理。如果一个元素在被处理前多次 enqueue，也会只被处理一次</li>
+<li>支持多生产者和消费者。即便一个元素正在被处理，也支持将其重新加入队列</li>
+<li>队列关闭通知。</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// Package workqueue provides a simple queue that supports the following</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// features:</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">//  * Fair: items processed in the order in which they are added.</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">//  * Stingy: a single item will not be processed multiple times concurrently,</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">//      and if an item is added multiple times before it can be processed, it</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">//      will only be processed once.</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">//  * Multiple consumers and producers. In particular, it is allowed for an</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">//      item to be reenqueued while it is being processed.</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">//  * Shutdown notifications.</span>
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">type</span> Interface <span style="color:#8be9fd;font-style:italic">interface</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">Add</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{})
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">Len</span>() <span style="color:#8be9fd">int</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">Get</span>() (item <span style="color:#8be9fd;font-style:italic">interface</span>{}, shutdown <span style="color:#8be9fd">bool</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">Done</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{})
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">ShutDown</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">ShuttingDown</span>() <span style="color:#8be9fd">bool</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>workqueue 具体数据结构比较重要的几个字段如下，支持了 queue 的基础能力</p>
+<ol>
+<li>queue 数组，定义元素被处理的顺序</li>
+<li>processing: map 结构，当前正在被处理的元素集合</li>
+<li>dirty: map 结构，所有将要被处理的元素集合</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// Type is a work queue (see the package comment).</span>
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">type</span> Type <span style="color:#8be9fd;font-style:italic">struct</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// queue defines the order in which we will work on items. Every</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// element of queue should be in the dirty set and not in the</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// processing set.</span>
+</span></span><span style="display:flex;"><span>        queue []t
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// dirty defines all of the items that need to be processed.</span>
+</span></span><span style="display:flex;"><span>        dirty set
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// Things that are currently being processed are in the processing set.</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// These things may be simultaneously in the dirty set. When we finish</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// processing something and remove it from this set, we&#39;ll check if</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// it&#39;s in the dirty set, and if so, add it to the queue.</span>
+</span></span><span style="display:flex;"><span>        processing set
+</span></span><span style="display:flex;"><span>        cond <span style="color:#ff79c6">*</span>sync.Cond
+</span></span><span style="display:flex;"><span>        shuttingDown <span style="color:#8be9fd">bool</span>
+</span></span><span style="display:flex;"><span>        metrics queueMetrics
+</span></span><span style="display:flex;"><span>        unfinishedWorkUpdatePeriod time.Duration
+</span></span><span style="display:flex;"><span>        clock                      clock.Clock
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>核心方法实现细节：</p>
+<ol>
+<li><code>Add</code> 标记一个元素需要被处理。先检查当前元素是否已在待处理集合中，已存在则直接返回。这也就实现了目标中的：“严格限制一个元素不会被并行多次处理”。元素会被先被加入 dirty，如果同样元素已经正在处理中，则直接返回（下面会讲到，等到该元素被处理完后，再加入 queue 数组）。否则将其加入 queue 数组中，标记处理顺序。</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// Add marks item as needing processing.</span>
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">func</span> (q <span style="color:#ff79c6">*</span>Type) <span style="color:#50fa7b">Add</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{}) {
+</span></span><span style="display:flex;"><span>        q.cond.L.<span style="color:#50fa7b">Lock</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">defer</span> q.cond.L.<span style="color:#50fa7b">Unlock</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">if</span> q.shuttingDown {
+</span></span><span style="display:flex;"><span>                <span style="color:#ff79c6">return</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">if</span> q.dirty.<span style="color:#50fa7b">has</span>(item) {
+</span></span><span style="display:flex;"><span>                <span style="color:#ff79c6">return</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        q.metrics.<span style="color:#50fa7b">add</span>(item)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        q.dirty.<span style="color:#50fa7b">insert</span>(item)
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">if</span> q.processing.<span style="color:#50fa7b">has</span>(item) {
+</span></span><span style="display:flex;"><span>                <span style="color:#ff79c6">return</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        q.queue = <span style="color:#8be9fd;font-style:italic">append</span>(q.queue, item)
+</span></span><span style="display:flex;"><span>        q.cond.<span style="color:#50fa7b">Signal</span>()
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ol start="2">
+<li><code>Get</code> 是一个阻塞性方法直到发现队列内有元素需要被处理。首先先从 queue 内取出一个元素，然后对 queue 做重新赋值。接下来将该元素插入 processing map 且移除 dirty map，标识该元素正在被处理。Get 方法拿到元素后，无论处理结果如何，一定要调用 Done 方法，如果不调用 Done 会导致 processing 集合越来越大可能引发内存泄漏。</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// Get blocks until it can return an item to be processed. If shutdown = true,</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// the caller should end their goroutine. You must call Done with item when you</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// have finished processing it.</span>
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">func</span> (q <span style="color:#ff79c6">*</span>Type) <span style="color:#50fa7b">Get</span>() (item <span style="color:#8be9fd;font-style:italic">interface</span>{}, shutdown <span style="color:#8be9fd">bool</span>) {
+</span></span><span style="display:flex;"><span>        q.cond.L.<span style="color:#50fa7b">Lock</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">defer</span> q.cond.L.<span style="color:#50fa7b">Unlock</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">for</span> <span style="color:#8be9fd;font-style:italic">len</span>(q.queue) <span style="color:#ff79c6">==</span> <span style="color:#bd93f9">0</span> <span style="color:#ff79c6">&amp;&amp;</span> !q.shuttingDown {
+</span></span><span style="display:flex;"><span>                q.cond.<span style="color:#50fa7b">Wait</span>()
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">if</span> <span style="color:#8be9fd;font-style:italic">len</span>(q.queue) <span style="color:#ff79c6">==</span> <span style="color:#bd93f9">0</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#6272a4">// We must be shutting down.</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#ff79c6">return</span> <span style="color:#ff79c6">nil</span>, <span style="color:#ff79c6">true</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        item, q.queue = q.queue[<span style="color:#bd93f9">0</span>], q.queue[<span style="color:#bd93f9">1</span>:]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        q.metrics.<span style="color:#50fa7b">get</span>(item)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        q.processing.<span style="color:#50fa7b">insert</span>(item)
+</span></span><span style="display:flex;"><span>        q.dirty.<span style="color:#8be9fd;font-style:italic">delete</span>(item)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">return</span> item, <span style="color:#ff79c6">false</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ol start="3">
+<li><code>Done</code> 标记一个元素已经被处理完成。首先先将元素从 processing map 中移除，然后检查该元素是否在 dirty 集合中存在，如果存在则将元素重新 enqueue。这也就保证了一个元素不会同时被多个 consumer 处理，当一个元素被执行结束之后，再将重复的元素加入 queue 数组。</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// Done marks item as done processing, and if it has been marked as dirty again</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// while it was being processed, it will be re-added to the queue for</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// re-processing.</span>
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">func</span> (q <span style="color:#ff79c6">*</span>Type) <span style="color:#50fa7b">Done</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{}) {
+</span></span><span style="display:flex;"><span>        q.cond.L.<span style="color:#50fa7b">Lock</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">defer</span> q.cond.L.<span style="color:#50fa7b">Unlock</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        q.metrics.<span style="color:#50fa7b">done</span>(item)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        q.processing.<span style="color:#8be9fd;font-style:italic">delete</span>(item)
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">if</span> q.dirty.<span style="color:#50fa7b">has</span>(item) {
+</span></span><span style="display:flex;"><span>                q.queue = <span style="color:#8be9fd;font-style:italic">append</span>(q.queue, item)
+</span></span><span style="display:flex;"><span>                q.cond.<span style="color:#50fa7b">Signal</span>()
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="第二层延迟队列-delaying-queue">第二层：延迟队列 delaying queue</h2>
+<p>Delaying queue 在 workqueue 的基础上做了封装，支持延迟 enqueue，目的是让失败后重新 enqueue 操作不要过于频繁，避免无限循环。增加 AddAfter 方法，支持在指定时长之后将元素加入队列。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// DelayingInterface is an Interface that can Add an item at a later time. This makes it easier to</span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// requeue items after failures without ending up in a hot-loop.</span>
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">type</span> DelayingInterface <span style="color:#8be9fd;font-style:italic">interface</span> {
+</span></span><span style="display:flex;"><span>        Interface
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// AddAfter adds an item to the workqueue after the indicated duration has passed</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">AddAfter</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{}, duration time.Duration)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Delaying queue 在实现上增加了 <code>waitingForAddCh</code> channel，buffer 长度 1000。新增的 AddAfter 方法接收 item, duration 两个参数，将两个元素组成 waitFor 结构投递到 waitingForAddCh 中。 Deleying queue 创建后会启动一个异步的 loop 函数，将 waitFor 元素完成等待时长后加入队列。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// delayingType wraps an Interface and provides delayed re-enquing</span>
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">type</span> delayingType <span style="color:#8be9fd;font-style:italic">struct</span> {
+</span></span><span style="display:flex;"><span>        Interface
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// clock tracks time for delayed firing</span>
+</span></span><span style="display:flex;"><span>        clock clock.Clock
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// stopCh lets us signal a shutdown to the waiting loop</span>
+</span></span><span style="display:flex;"><span>        stopCh <span style="color:#8be9fd;font-style:italic">chan</span> <span style="color:#8be9fd;font-style:italic">struct</span>{}
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// stopOnce guarantees we only signal shutdown a single time</span>
+</span></span><span style="display:flex;"><span>        stopOnce sync.Once
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// heartbeat ensures we wait no more than maxWait before firing</span>
+</span></span><span style="display:flex;"><span>        heartbeat clock.Ticker
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// waitingForAddCh is a buffered channel that feeds waitingForAdd</span>
+</span></span><span style="display:flex;"><span>        waitingForAddCh <span style="color:#8be9fd;font-style:italic">chan</span> <span style="color:#ff79c6">*</span>waitFor
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// metrics counts the number of retries</span>
+</span></span><span style="display:flex;"><span>        metrics retryMetrics
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// AddAfter adds the given item to the work queue after the given delay</span>
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">func</span> (q <span style="color:#ff79c6">*</span>delayingType) <span style="color:#50fa7b">AddAfter</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{}, duration time.Duration) {
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// don&#39;t add if we&#39;re already shutting down</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">if</span> q.<span style="color:#50fa7b">ShuttingDown</span>() {
+</span></span><span style="display:flex;"><span>                <span style="color:#ff79c6">return</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        q.metrics.<span style="color:#50fa7b">retry</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// immediately add things with no delay</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">if</span> duration <span style="color:#ff79c6">&lt;=</span> <span style="color:#bd93f9">0</span> {
+</span></span><span style="display:flex;"><span>                q.<span style="color:#50fa7b">Add</span>(item)
+</span></span><span style="display:flex;"><span>                <span style="color:#ff79c6">return</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">select</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">case</span> <span style="color:#ff79c6">&lt;-</span>q.stopCh:
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// unblock if ShutDown() is called</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">case</span> q.waitingForAddCh <span style="color:#ff79c6">&lt;-</span> <span style="color:#ff79c6">&amp;</span>waitFor{data: item, readyAt: q.clock.<span style="color:#50fa7b">Now</span>().<span style="color:#50fa7b">Add</span>(duration)}:
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h2 id="第三层限速队列-rate-limiting-queue">第三层：限速队列 rate limiting queue</h2>
+<p>限速队列是在 delaying queue 基础之上组合了 ratelimiter 构造的队列，顾名思义它可以控制元素的 enqueue 速率。在 delaying queue 的基础上增加了 AddRateLimited、Forget、NumRequeues 方法。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// RateLimitingInterface is an interface that rate limits items being added to the queue.</span>
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">type</span> RateLimitingInterface <span style="color:#8be9fd;font-style:italic">interface</span> {
+</span></span><span style="display:flex;"><span>        DelayingInterface
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// AddRateLimited adds an item to the workqueue after the rate limiter says it&#39;s ok</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">AddRateLimited</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{})
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// Forget indicates that an item is finished being retried.  Doesn&#39;t matter whether it&#39;s for perm failing</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// or for success, we&#39;ll stop the rate limiter from tracking it.  This only clears the `rateLimiter`, you</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// still have to call `Done` on the queue.</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">Forget</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{})
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// NumRequeues returns back how many times the item was requeued</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">NumRequeues</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{}) <span style="color:#8be9fd">int</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Ratelimiter 是限速队列的一个关键模块，默认的 ratelimiter 由两类 ratelimiter 共同组成，一个是 <code>BucketRateLimiter</code> 基于令牌桶实现，控制入队的 qps &amp; burst（默认 qps 10 burst 100） 。另一个是 <code>ItemExponentialFailureRateLimiter</code> 指数回退限速器，用于计算元素下一次入队的延迟间隔。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">func</span> <span style="color:#50fa7b">DefaultControllerRateLimiter</span>() RateLimiter {
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">return</span> <span style="color:#50fa7b">NewMaxOfRateLimiter</span>(
+</span></span><span style="display:flex;"><span>                <span style="color:#50fa7b">NewItemExponentialFailureRateLimiter</span>(<span style="color:#bd93f9">5</span><span style="color:#ff79c6">*</span>time.Millisecond, <span style="color:#bd93f9">1000</span><span style="color:#ff79c6">*</span>time.Second),
+</span></span><span style="display:flex;"><span>                <span style="color:#6272a4">// 10 qps, 100 bucket size.  This is only for retry speed and its only the overall factor (not per item)</span>
+</span></span><span style="display:flex;"><span>                <span style="color:#ff79c6">&amp;</span>BucketRateLimiter{Limiter: rate.<span style="color:#50fa7b">NewLimiter</span>(rate.<span style="color:#50fa7b">Limit</span>(<span style="color:#bd93f9">10</span>), <span style="color:#bd93f9">100</span>)},
+</span></span><span style="display:flex;"><span>        )
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>AddRateLimited 方法会先让 ratelimiter 计算出该元素的延迟时长，然后调用 delaying queue 提供的 AddAfter 方法。ItemExponentialFailureRateLimiter 在 When 方法中会基于元素 enqueue 次数计算出延迟入队时长，计算方法是 baseDelay 值 * (2 ^ 重复 enqueue 次数)。所以 ratelimiter 结构体中有 <code>failures map[interface{}]int</code> 来记录重复入队次数。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// AddRateLimited AddAfter&#39;s the item based on the time when the rate limiter says it&#39;s ok</span>
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">func</span> (q <span style="color:#ff79c6">*</span>rateLimitingType) <span style="color:#50fa7b">AddRateLimited</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{}) {
+</span></span><span style="display:flex;"><span>        q.DelayingInterface.<span style="color:#50fa7b">AddAfter</span>(item, q.rateLimiter.<span style="color:#50fa7b">When</span>(item))
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">func</span> (r <span style="color:#ff79c6">*</span>ItemExponentialFailureRateLimiter) <span style="color:#50fa7b">When</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{}) time.Duration {
+</span></span><span style="display:flex;"><span>        r.failuresLock.<span style="color:#50fa7b">Lock</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">defer</span> r.failuresLock.<span style="color:#50fa7b">Unlock</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        exp <span style="color:#ff79c6">:=</span> r.failures[item]
+</span></span><span style="display:flex;"><span>        r.failures[item] = r.failures[item] <span style="color:#ff79c6">+</span> <span style="color:#bd93f9">1</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// The backoff is capped such that &#39;calculated&#39; value never overflows.</span>
+</span></span><span style="display:flex;"><span>        backoff <span style="color:#ff79c6">:=</span> <span style="color:#8be9fd;font-style:italic">float64</span>(r.baseDelay.<span style="color:#50fa7b">Nanoseconds</span>()) <span style="color:#ff79c6">*</span> math.<span style="color:#50fa7b">Pow</span>(<span style="color:#bd93f9">2</span>, <span style="color:#8be9fd;font-style:italic">float64</span>(exp))
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">if</span> backoff &gt; math.MaxInt64 {
+</span></span><span style="display:flex;"><span>                <span style="color:#ff79c6">return</span> r.maxDelay
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        calculated <span style="color:#ff79c6">:=</span> time.<span style="color:#50fa7b">Duration</span>(backoff)
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">if</span> calculated &gt; r.maxDelay {
+</span></span><span style="display:flex;"><span>                <span style="color:#ff79c6">return</span> r.maxDelay
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">return</span> calculated
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>当一个元素重复处理失败，多次 enqueue 后终于被处理成功了。一定要调用 <code>Forget</code> 方法，清除失败次数统计记录，不然下一次执行 AddRateLimited 会基于之前的记录计算 enqueue 延迟。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">func</span> (q <span style="color:#ff79c6">*</span>rateLimitingType) <span style="color:#50fa7b">Forget</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{}) {
+</span></span><span style="display:flex;"><span>        q.rateLimiter.<span style="color:#50fa7b">Forget</span>(item)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">func</span> (r <span style="color:#ff79c6">*</span>ItemFastSlowRateLimiter) <span style="color:#50fa7b">Forget</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{}) {
+</span></span><span style="display:flex;"><span>        r.failuresLock.<span style="color:#50fa7b">Lock</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">defer</span> r.failuresLock.<span style="color:#50fa7b">Unlock</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#8be9fd;font-style:italic">delete</span>(r.failures, item)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#50fa7b">NumRequeues</span>() 用于正在失败重试的元素个数。
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">func</span> (r <span style="color:#ff79c6">*</span>ItemExponentialFailureRateLimiter) <span style="color:#50fa7b">NumRequeues</span>(item <span style="color:#8be9fd;font-style:italic">interface</span>{}) <span style="color:#8be9fd">int</span> {
+</span></span><span style="display:flex;"><span>        r.failuresLock.<span style="color:#50fa7b">Lock</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">defer</span> r.failuresLock.<span style="color:#50fa7b">Unlock</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">return</span> r.failures[item]
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div>
+  </div>
+
+  <footer class="post-footer">
+    
+
+    
+
+    
+    
+  </footer>
+  
+  <div class="comments">
+  <div class="comments">
+
+
+
+</div>
+  </div>
+</article>
+
+  <div class="foot">
+  
+  &copy; 2022 - 2025 &#183;
+  <a href="/"> Stay foolish </a> &#183;
+  Theme <a href="https://github.com/RainerChiang/simpleness">Simpleness</a> Powered by <a href="https://gohugo.io/">Hugo</a> &#183;
+  <a href="#"><i class="fas fa-chevron-up"></i></a>
+</div>
+</body>
+  <script src="/js/lazyload.min.js"></script>
+<script>
+  var lazyImage = new LazyLoad({container: document.getElementById('article')});
+</script>
+
+
+
+
+</html>

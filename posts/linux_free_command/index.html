@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="cn">
+  <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Hugo 0.148.2">
+  <title> Linux free 命令的使用与理解 | Stay foolish </title>
+  <meta name="description" content="A simple and concise hugo theme.">
+  <link rel="stylesheet" href="https://wang-kai.github.io/css/simpleness.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.1.0/github-markdown-light.css"
+    integrity="sha512-1d9gwwC3dNW3O+lGwY8zTQrh08a41Ejci46DdzY1aQbqi/7Qr8Asp4ycWPsoD52tKXKrgu8h/lSpig1aAkvlMw=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="canonical" href="https://wang-kai.github.io/posts/linux_free_command/">
+  <link rel="alternate" type="application/rss+xml" href="" title="Stay foolish">
+  
+  
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/css/all.min.css" rel="stylesheet">
+  
+  
+      <script async src="https://www.googletagmanager.com/gtag/js?id=G-HCT9PR8XKE"></script>
+      <script>
+        var doNotTrack = false;
+        if ( false ) {
+          var dnt = (navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack);
+          var doNotTrack = (dnt == "1" || dnt == "yes");
+        }
+        if (!doNotTrack) {
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'G-HCT9PR8XKE');
+        }
+      </script>
+  
+</head>
+<body class="container">
+  <nav class="navigation">
+  <div class="nav-left">
+    
+    <div class="nav-item nav-title">
+      <a href="https://wang-kai.github.io/"> Stay foolish</a>
+    </div>
+  </div>
+  <div class="nav-item nav-right fontawesome">
+    <div class="nav-item nav-menu">
+      
+      <a href="/about/"> About</a>
+      
+    </div>
+    <a href="https://github.com/wang-kai" target="_blank">
+      <i title="GitHub" class="fab fa-github"></i>
+    </a>
+  </div>
+</nav>
+
+  
+<article class="markdown-body">
+  <header class="post-header">
+    <h1 style="text-align: left; margin-left: 0; padding-left: 0;" >Linux free 命令的使用与理解</h1>
+    <div class="post-metadata">
+    
+      <time datetime="2022-05-29T12:03:32&#43;08:00">May 29, 2022</time> &nbsp; 
+    
+    
+    
+    
+    
+      <i class="far fa-clock"></i>
+      
+      
+      
+      
+        5 min
+      
+      27 s
+      &nbsp;
+    
+    
+    </div>
+  </header>
+
+  
+
+  <div>
+    <p>在使用 linux 操作系统时，常见的需求就是查看内存使用情况，比如分析系统健康状况，或者确定机器是否可以部署更多新的业务等等，这是一个常见的需求。</p>
+<p>解决这个问题也很简单，多数云厂商提供的控制台都会展示各种机器指标的监控信息，内存使用率监控肯定是必不可少的。对 linux 了解一点的，也可以通过 free 命令来查看更详细的信息。当执行 free 命令的时候，不知道是否和我有同样的困惑：</p>
+<ul>
+<li>打印的这么多列具体都代表什么意思？这些列之间的关系是怎样的？</li>
+<li>内存可用率要看哪个指标？free 还是 available？</li>
+</ul>
+<h2 id="一free-命令的基础使用">一、free 命令的基础使用</h2>
+<p>基础使用：free [options]</p>
+<p>常用参数：</p>
+<ul>
+<li><code>-h</code> human-readable 格式打印</li>
+<li><code>-w</code> 把 cache &amp; buffer 分开打印</li>
+<li><code>-t</code> show total for RAM + swap</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-shell" data-lang="shell"><span style="display:flex;"><span>$ free -wth
+</span></span><span style="display:flex;"><span>              total        used        free      shared     buffers       cache   available
+</span></span><span style="display:flex;"><span>Mem:           125G        6.5G         87G        1.3G        3.5M         30G        116G
+</span></span><span style="display:flex;"><span>Swap:            0B          0B          0B
+</span></span><span style="display:flex;"><span>Total:         125G        6.5G         87G
+</span></span></code></pre></div><h2 id="二free-命令各列的含义">二、free 命令各列的含义</h2>
+<p>free 命令打印的信息来自 <code>/proc/meminfo</code> （<strong>/proc 不是一个存在于物理磁盘上的目录，而是用于提供内核信息的一个虚拟目录</strong>），通过解析文件内容来展示物理内存、Swap 内存的使用情况。</p>
+<table>
+  <thead>
+      <tr>
+          <th style="text-align: left">指标</th>
+          <th>含义</th>
+          <th>/proc/meminfo 数据源</th>
+      </tr>
+  </thead>
+  <tbody>
+      <tr>
+          <td style="text-align: left">total</td>
+          <td>总计可用的物理内存，但不包含 kernel &amp; OS 的内存占用</td>
+          <td>MemTotal</td>
+      </tr>
+      <tr>
+          <td style="text-align: left">free</td>
+          <td>没有被使用的内存空间大小</td>
+          <td>MemFree</td>
+      </tr>
+      <tr>
+          <td style="text-align: left">buffers</td>
+          <td>linux 内核用来做缓存的空间大小</td>
+          <td>Buffers</td>
+      </tr>
+      <tr>
+          <td style="text-align: left">cache</td>
+          <td>内存中用来做进程页缓存和 slabs 的空闲大小（slab 用作操作系统缓存）</td>
+          <td>Cached &amp; SReclaimable</td>
+      </tr>
+      <tr>
+          <td style="text-align: left">used</td>
+          <td>通过其他参数计算出来的参数</td>
+          <td>total - free - buffers - cache</td>
+      </tr>
+      <tr>
+          <td style="text-align: left">shared</td>
+          <td>用作 tmpfs 的内存空间</td>
+          <td>Shmem</td>
+      </tr>
+      <tr>
+          <td style="text-align: left">avaliable</td>
+          <td>预估可用于启动一个新应用的内存空间</td>
+          <td>MemAvailable</td>
+      </tr>
+  </tbody>
+</table>
+<h2 id="三可用内存要关注-free-列还是-avaliable">三、可用内存要关注 free 列还是 avaliable？</h2>
+<p><strong>判断启动一个新进程还有多少内存空间可使用，需要关注 avaliable 数值。</strong> avaliable 值通常要比 free 值要大，因为它加上了部分 cache &amp; buffer 占用的空间。但又比 free + cache + buffers 要小，因为承认系统正常运行所需要的必要合理的缓存使用。</p>
+<p>cache 的存在是由于 OS 运行中提升性能的需求。按照局部性原理，将未来可能用到的进程内存页做了缓存，减少了下次再需要该数据时产生缺页中断的概率。因为每发生一次缺页中断，就需要将进程置出，执行磁盘 I/O 读取数据，再将进程置为就绪态，是一个耗时操作。不做一些必要的 cache 就会导致磁盘 I/O 频繁、内存抖动，最终导致  CPU 使用率低。</p>
+<p>avaliable 的统计并不是将所有的 cache &amp; buffer 都统计在内，因为系统为了性能良好做一些缓存是合理的。从<a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=34e431b0a">源码</a> 上看，系统计算可用内存时会将  <code>min(pagecache / 2, wmark_low)</code>  减掉，即在 1/2 cache 大小和最少要保存的空闲内存间选一个最小值，这部分值将不记作可用内存。所以这也就是为什么真正的 avaliable 值要比 free 值要大，而有比 free + cache + buffers 要小的原因了。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-c" data-lang="c"><span style="display:flex;"><span><span style="color:#50fa7b">for_each_zone</span>(zone)
+</span></span><span style="display:flex;"><span>   wmark_low <span style="color:#ff79c6">+=</span> zone<span style="color:#ff79c6">-&gt;</span>watermark[WMARK_LOW];
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">* Estimate the amount of memory available for userspace allocations,
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">* without causing swapping.
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">*
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">* Free memory cannot be taken below the low watermark, before the
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">* system starts swapping.
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">*/</span>
+</span></span><span style="display:flex;"><span>available <span style="color:#ff79c6">=</span> i.freeram <span style="color:#ff79c6">-</span> wmark_low;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">* Not all the page cache can be freed, otherwise the system will
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">* start swapping. Assume at least half of the page cache, or the
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">* low watermark worth of cache, needs to stay.
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">*/</span>
+</span></span><span style="display:flex;"><span>pagecache <span style="color:#ff79c6">=</span> pages[LRU_ACTIVE_FILE] <span style="color:#ff79c6">+</span> pages[LRU_INACTIVE_FILE];
+</span></span><span style="display:flex;"><span>pagecache <span style="color:#ff79c6">-=</span> <span style="color:#50fa7b">min</span>(pagecache <span style="color:#ff79c6">/</span> <span style="color:#bd93f9">2</span>, wmark_low);
+</span></span><span style="display:flex;"><span>available <span style="color:#ff79c6">+=</span> pagecache;
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">/*
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">* Part of the reclaimable swap consists of items that are in use,
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">* and cannot be freed. Cap this estimate at the low watermark.
+</span></span></span><span style="display:flex;"><span><span style="color:#6272a4">*/</span>
+</span></span><span style="display:flex;"><span>available <span style="color:#ff79c6">+=</span> <span style="color:#50fa7b">global_page_state</span>(NR_SLAB_RECLAIMABLE) <span style="color:#ff79c6">-</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">min</span>(<span style="color:#50fa7b">global_page_state</span>(NR_SLAB_RECLAIMABLE) <span style="color:#ff79c6">/</span> <span style="color:#bd93f9">2</span>, wmark_low);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">if</span> (available <span style="color:#ff79c6">&lt;</span> <span style="color:#bd93f9">0</span>)
+</span></span><span style="display:flex;"><span>   available <span style="color:#ff79c6">=</span> <span style="color:#bd93f9">0</span>;
+</span></span></code></pre></div><h2 id="结论">结论</h2>
+<p><code>free</code> 是操作 linux 系统时一个常用命令，理解其各指标内在含义有一定门槛。操作系统的内存管理比较复杂，本质要解决的问题是<strong>如何利用有限的内存空间最大化的存放更多的进程，同时减少缺页中断率</strong>。</p>
+<h2 id="参考文档">参考文档</h2>
+<ul>
+<li>《操作系统精髓与设计原理》第六版</li>
+<li><a href="https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=34e431b0a">provide estimated available memory</a></li>
+<li><a href="https://blogs.oracle.com/linux/post/anticipating-your-memory-needs">Anticipating Your Memory Needs</a></li>
+</ul>
+
+  </div>
+
+  <footer class="post-footer">
+    
+
+    
+
+    
+    
+  </footer>
+  
+  <div class="comments">
+  <div class="comments">
+
+
+
+</div>
+  </div>
+</article>
+
+  <div class="foot">
+  
+  &copy; 2022 - 2025 &#183;
+  <a href="/"> Stay foolish </a> &#183;
+  Theme <a href="https://github.com/RainerChiang/simpleness">Simpleness</a> Powered by <a href="https://gohugo.io/">Hugo</a> &#183;
+  <a href="#"><i class="fas fa-chevron-up"></i></a>
+</div>
+</body>
+  <script src="/js/lazyload.min.js"></script>
+<script>
+  var lazyImage = new LazyLoad({container: document.getElementById('article')});
+</script>
+
+
+
+
+</html>

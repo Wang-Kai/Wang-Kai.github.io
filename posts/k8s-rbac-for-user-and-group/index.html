@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="cn">
+  <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Hugo 0.148.2">
+  <title> K8s RBAC 体系中的 User 和 Group | Stay foolish </title>
+  <meta name="description" content="A simple and concise hugo theme.">
+  <link rel="stylesheet" href="https://wang-kai.github.io/css/simpleness.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.1.0/github-markdown-light.css"
+    integrity="sha512-1d9gwwC3dNW3O+lGwY8zTQrh08a41Ejci46DdzY1aQbqi/7Qr8Asp4ycWPsoD52tKXKrgu8h/lSpig1aAkvlMw=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="canonical" href="https://wang-kai.github.io/posts/k8s-rbac-for-user-and-group/">
+  <link rel="alternate" type="application/rss+xml" href="" title="Stay foolish">
+  
+  
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/css/all.min.css" rel="stylesheet">
+  
+  
+      <script async src="https://www.googletagmanager.com/gtag/js?id=G-HCT9PR8XKE"></script>
+      <script>
+        var doNotTrack = false;
+        if ( false ) {
+          var dnt = (navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack);
+          var doNotTrack = (dnt == "1" || dnt == "yes");
+        }
+        if (!doNotTrack) {
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'G-HCT9PR8XKE');
+        }
+      </script>
+  
+</head>
+<body class="container">
+  <nav class="navigation">
+  <div class="nav-left">
+    
+    <div class="nav-item nav-title">
+      <a href="https://wang-kai.github.io/"> Stay foolish</a>
+    </div>
+  </div>
+  <div class="nav-item nav-right fontawesome">
+    <div class="nav-item nav-menu">
+      
+      <a href="/about/"> About</a>
+      
+    </div>
+    <a href="https://github.com/wang-kai" target="_blank">
+      <i title="GitHub" class="fab fa-github"></i>
+    </a>
+  </div>
+</nav>
+
+  
+<article class="markdown-body">
+  <header class="post-header">
+    <h1 style="text-align: left; margin-left: 0; padding-left: 0;" >K8s RBAC 体系中的 User 和 Group</h1>
+    <div class="post-metadata">
+    
+      <time datetime="2023-01-22T19:44:22&#43;08:00">January 22, 2023</time> &nbsp; 
+    
+    
+    
+    
+    
+      <i class="far fa-clock"></i>
+      
+      
+      
+      
+        3 min
+      
+      49 s
+      &nbsp;
+    
+    
+    </div>
+  </header>
+
+  
+
+  <div>
+    <p>K8s RBAC 体系中，可以作为授权对象的有 3 个类型：User、Group、ServiceAccount。</p>
+<p><code>ServiceAccout</code> 作为 K8s 的一种资源类型，有具体的 API 可以操作，本文主要介绍没有具体资源定义，又相对查看困难的 User 、Group 两个对象。</p>
+<p>
+<figure>
+    <img src="/k8s-rbac-auth.png#center" alt="">
+    <figcaption>K8s RBAC model</figcaption>
+</figure>
+</p>
+<h2 id="如何创建-user-和-group">如何创建 User 和 Group？</h2>
+<h3 id="1-签发-x509-client-证书">1. 签发 X509 Client 证书</h3>
+<p>通过 CA 签发证书，apiserver auth 逻辑会解析证书的 subject 对象，把其中 <code>common_name（CN）</code> 作为 User，<code>organization （O）</code> 作为 Group。例如：kubeconfig 所使用证书的内容（通过 <a href="https://github.com/cloudflare/cfssl/releases">cfssl-certinfo</a> -cert admin.pem 查看）</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-json" data-lang="json"><span style="display:flex;"><span>{
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">&#34;subject&#34;</span>: {
+</span></span><span style="display:flex;"><span>    <span style="color:#ff79c6">&#34;common_name&#34;</span>: <span style="color:#f1fa8c">&#34;kubernetes-admin&#34;</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#ff79c6">&#34;organization&#34;</span>: <span style="color:#f1fa8c">&#34;system:masters&#34;</span>,
+</span></span><span style="display:flex;"><span>    <span style="color:#ff79c6">&#34;names&#34;</span>: [
+</span></span><span style="display:flex;"><span>      <span style="color:#f1fa8c">&#34;system:masters&#34;</span>,
+</span></span><span style="display:flex;"><span>      <span style="color:#f1fa8c">&#34;kubernetes-admin&#34;</span>
+</span></span><span style="display:flex;"><span>    ]
+</span></span><span style="display:flex;"><span>  },
+</span></span><span style="display:flex;"><span>  ...
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>在这个例子中，User 就是 kubernetes-admin，Group 是 system:masters，其他字段暂可忽略。</p>
+<h3 id="2-向-kube-apiserver-提供静态文件">2. 向 kube-apiserver 提供静态文件</h3>
+<p>kube-apiserver 有一个 <code>--token-auth-file</code> 参数，通过该参数可以指向一个 csv 格式的文件，在文件内声明 user 和 group。这种方式<strong>所声明的 user 和 group 长期有效，如果要变更文件内容的话，需要重新启动 apiserver</strong>。</p>
+<p>csv 文件默认为 4 列，分别是 token, user name, user uid，最后一列是 group 可选择性填写，多个 group 可以用 <code>,</code> 分隔。示例如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-csv" data-lang="csv"><span style="display:flex;"><span><span style="color:#f1fa8c">4ca847e7669ed6da37bc060da63e84c388</span>,<span style="color:#f1fa8c">kubectl</span>,<span style="color:#f1fa8c">10001</span>,<span style="color:#f1fa8c">&#34;system:view&#34;</span>
+</span></span><span style="display:flex;"><span><span style="color:#f1fa8c">bc060da63e8046a9cfef23dd4e4c31a6a6</span>,<span style="color:#f1fa8c">node-admin</span>,<span style="color:#f1fa8c">10001</span>,<span style="color:#f1fa8c">&#34;system:masters&#34;</span>
+</span></span></code></pre></div><h2 id="权限体系如何针对-user-和-group-做权限校验">权限体系如何针对 User 和 Group 做权限校验？</h2>
+<p>和 ServiceAccount 一样，User 和 Group 的权限校验通过 K8s RBAC 机制，可以使用 RoleBinding 或 ClusterRoleBinding 来为 User 和 Group 做授权。</p>
+<p>通过查看 RoleBinding 或者 ClusterRoleBinding 的 <code>subjects.kind</code> 描述可以看到 kind 有三个选项 &ldquo;User&rdquo;、&ldquo;Group&rdquo; 和 &ldquo;ServiceAccount&rdquo;，在这个字段指定需要授权的类型即可。</p>
+<blockquote>
+<p>KIND:     RoleBinding
+VERSION:  rbac.authorization.k8s.io/v1</p>
+<p>FIELD:    kind <!-- raw HTML omitted --></p>
+<p>DESCRIPTION:
+Kind of object being referenced. Values defined by this API group are
+&ldquo;User&rdquo;, &ldquo;Group&rdquo;, and &ldquo;ServiceAccount&rdquo;. If the Authorizer does not
+recognized the kind value, the Authorizer should report an error.</p></blockquote>
+<p>以 cluster-admin 的授权为例，如下 YAML 文件为 system:masters Group 授予 cluster-admin 角色（该角色拥有集群所有权限）。前面我们看到证书中 <code>organization</code> 签的就是 system:masters，所以这也就是为何通过该证书可以拥有 K8s admin 级别权限的原因。</p>
+<p>为 Group system:masters 绑定 ClusterRole cluster-admin 权限。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-yaml" data-lang="yaml"><span style="display:flex;"><span><span style="color:#ff79c6">apiVersion</span>: rbac.authorization.k8s.io/v1
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">kind</span>: ClusterRoleBinding
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">metadata</span>:
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">annotations</span>:
+</span></span><span style="display:flex;"><span>    <span style="color:#ff79c6">rbac.authorization.kubernetes.io/autoupdate</span>: <span style="color:#f1fa8c">&#34;true&#34;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">labels</span>:
+</span></span><span style="display:flex;"><span>    <span style="color:#ff79c6">kubernetes.io/bootstrapping</span>: rbac-defaults
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">name</span>: cluster-admin
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">roleRef</span>:
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">apiGroup</span>: rbac.authorization.k8s.io
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">kind</span>: ClusterRole
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">name</span>: cluster-admin
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">subjects</span>:
+</span></span><span style="display:flex;"><span>- <span style="color:#ff79c6">apiGroup</span>: rbac.authorization.k8s.io
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">kind</span>: Group
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">name</span>: system:masters
+</span></span></code></pre></div><p>ClusterRole cluster-admin 拥有 K8s 所有资源的所有权限。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-yaml" data-lang="yaml"><span style="display:flex;"><span><span style="color:#ff79c6">apiVersion</span>: rbac.authorization.k8s.io/v1
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">kind</span>: ClusterRole
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">metadata</span>:
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">annotations</span>:
+</span></span><span style="display:flex;"><span>    <span style="color:#ff79c6">rbac.authorization.kubernetes.io/autoupdate</span>: <span style="color:#f1fa8c">&#34;true&#34;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">labels</span>:
+</span></span><span style="display:flex;"><span>    <span style="color:#ff79c6">kubernetes.io/bootstrapping</span>: rbac-defaults
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">name</span>: cluster-admin
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">rules</span>:
+</span></span><span style="display:flex;"><span>- <span style="color:#ff79c6">apiGroups</span>:
+</span></span><span style="display:flex;"><span>  - <span style="color:#f1fa8c">&#39;*&#39;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">resources</span>:
+</span></span><span style="display:flex;"><span>  - <span style="color:#f1fa8c">&#39;*&#39;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">verbs</span>:
+</span></span><span style="display:flex;"><span>  - <span style="color:#f1fa8c">&#39;*&#39;</span>
+</span></span><span style="display:flex;"><span>- <span style="color:#ff79c6">nonResourceURLs</span>:
+</span></span><span style="display:flex;"><span>  - <span style="color:#f1fa8c">&#39;*&#39;</span>
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">verbs</span>:
+</span></span><span style="display:flex;"><span>  - <span style="color:#f1fa8c">&#39;*&#39;</span>
+</span></span></code></pre></div><h2 id="参考文档">参考文档</h2>
+<ul>
+<li><a href="https://kubernetes.io/docs/reference/access-authn-authz/authentication/">Authenticating</a></li>
+<li><a href="https://docs.bitnami.com/tutorials/simplify-kubernetes-resource-access-rbac-impersonation/">Simplify Kubernetes Resource Access Control using RBAC Impersonation</a></li>
+</ul>
+
+  </div>
+
+  <footer class="post-footer">
+    
+
+    
+
+    
+    
+  </footer>
+  
+  <div class="comments">
+  <div class="comments">
+
+
+
+</div>
+  </div>
+</article>
+
+  <div class="foot">
+  
+  &copy; 2022 - 2025 &#183;
+  <a href="/"> Stay foolish </a> &#183;
+  Theme <a href="https://github.com/RainerChiang/simpleness">Simpleness</a> Powered by <a href="https://gohugo.io/">Hugo</a> &#183;
+  <a href="#"><i class="fas fa-chevron-up"></i></a>
+</div>
+</body>
+  <script src="/js/lazyload.min.js"></script>
+<script>
+  var lazyImage = new LazyLoad({container: document.getElementById('article')});
+</script>
+
+
+
+
+</html>

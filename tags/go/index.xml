@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Go on Stay foolish</title>
+    <link>https://wang-kai.github.io/tags/go/</link>
+    <description>Recent content in Go on Stay foolish</description>
+    <generator>Hugo</generator>
+    <language>cn</language>
+    <lastBuildDate>Tue, 03 May 2022 11:31:43 +0800</lastBuildDate>
+    <atom:link href="https://wang-kai.github.io/tags/go/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>go-querystring：把结构体转为 URL query string 的利器</title>
+      <link>https://wang-kai.github.io/posts/go_querystring/</link>
+      <pubDate>Tue, 03 May 2022 11:31:43 +0800</pubDate>
+      <guid>https://wang-kai.github.io/posts/go_querystring/</guid>
+      <description>&lt;h2 id=&#34;需求场景&#34;&gt;需求场景&lt;/h2&gt;&#xA;&lt;p&gt;后端服务在调用第三方 API 的时候，常见的需求就是构建 URL query string。在 go 标准包中有 &lt;a href=&#34;https://pkg.go.dev/net/url&#34;&gt;net/url&lt;/a&gt; 来解决这个问题，&lt;code&gt;url.Values&lt;/code&gt; 的本质是一个 &lt;code&gt;map[string][]string&lt;/code&gt;， 且提供一系列方法(Add、Del、Set)来操作参数，最终通过 &lt;code&gt;Encode()&lt;/code&gt; 方法把 map 转为 URL query string。但其中会牵扯到一些重复性工作，比如：&lt;/p&gt;&#xA;&lt;ol&gt;&#xA;&lt;li&gt;类型转换，要把 int、bool 等转为 string&lt;/li&gt;&#xA;&lt;li&gt;判断字段是否空或零值的处理逻辑&lt;/li&gt;&#xA;&lt;/ol&gt;&#xA;&lt;p&gt;针对这个问题，google 开源的 &lt;a href=&#34;https://github.com/google/go-querystring&#34;&gt;go-querystring&lt;/a&gt;  可以优雅简洁的解决这类重复性工作。&lt;/p&gt;&#xA;&lt;h2 id=&#34;使用介绍&#34;&gt;使用介绍&lt;/h2&gt;&#xA;&lt;p&gt;整个 go-querystring 库对外仅暴露了一个方法 &lt;code&gt;func Values(v interface{}) (url.Values, error)&lt;/code&gt;，该方法接收一个结构体，返回值是一个填充好数据的 &lt;code&gt;url.Values&lt;/code&gt;。&lt;/p&gt;&#xA;&lt;p&gt;默认的，URL query string 中 key 值是结构体字段名。如果字段不需要被编码，可以写上 &lt;code&gt;url:&amp;quot;-&amp;quot;&lt;/code&gt; ，对于需要忽略空值的场景，要加上 &lt;code&gt;omitempty&lt;/code&gt;，实例如下：&lt;/p&gt;&#xA;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-go&#34; data-lang=&#34;go&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#8be9fd;font-style:italic&#34;&gt;type&lt;/span&gt; GetPodsReq &lt;span style=&#34;color:#8be9fd;font-style:italic&#34;&gt;struct&lt;/span&gt; {&#xA;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&#x9;ClusterID &lt;span style=&#34;color:#8be9fd&#34;&gt;int64&lt;/span&gt;  &lt;span style=&#34;color:#f1fa8c&#34;&gt;`form:&amp;#34;cluster_id&amp;#34; url:&amp;#34;cluster_id,omitempty&amp;#34;`&lt;/span&gt;&#xA;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&#x9;Nodenames &lt;span style=&#34;color:#8be9fd&#34;&gt;string&lt;/span&gt; &lt;span style=&#34;color:#f1fa8c&#34;&gt;`form:&amp;#34;nodenames&amp;#34; url:&amp;#34;nodenames,omitempty&amp;#34;`&lt;/span&gt;&#xA;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&#x9;Selector  &lt;span style=&#34;color:#8be9fd&#34;&gt;string&lt;/span&gt; &lt;span style=&#34;color:#f1fa8c&#34;&gt;`form:&amp;#34;selector&amp;#34; url:&amp;#34;selector,omitempty&amp;#34;`&lt;/span&gt;&#xA;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&#x9;Hostnames &lt;span style=&#34;color:#8be9fd&#34;&gt;string&lt;/span&gt; &lt;span style=&#34;color:#f1fa8c&#34;&gt;`form:&amp;#34;hostnames&amp;#34; url:&amp;#34;hostnames,omitempty&amp;#34;`&lt;/span&gt;&#xA;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;}&#xA;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;将结构体转为 query string 十分简单，仅需要一个  Values 方法调用即可把结构体转为 &lt;code&gt;url.Values&lt;/code&gt;，然后通过 &lt;code&gt;url.Values&lt;/code&gt; 的  Encode 方法构建出来 query string。&lt;/p&gt;</description>
+    </item>
+  </channel>
+</rss>

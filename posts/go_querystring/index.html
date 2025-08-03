@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="cn">
+  <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Hugo 0.148.2">
+  <title> go-querystring：把结构体转为 URL query string 的利器 | Stay foolish </title>
+  <meta name="description" content="A simple and concise hugo theme.">
+  <link rel="stylesheet" href="https://wang-kai.github.io/css/simpleness.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.1.0/github-markdown-light.css"
+    integrity="sha512-1d9gwwC3dNW3O+lGwY8zTQrh08a41Ejci46DdzY1aQbqi/7Qr8Asp4ycWPsoD52tKXKrgu8h/lSpig1aAkvlMw=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="canonical" href="https://wang-kai.github.io/posts/go_querystring/">
+  <link rel="alternate" type="application/rss+xml" href="" title="Stay foolish">
+  
+  
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/css/all.min.css" rel="stylesheet">
+  
+  
+      <script async src="https://www.googletagmanager.com/gtag/js?id=G-HCT9PR8XKE"></script>
+      <script>
+        var doNotTrack = false;
+        if ( false ) {
+          var dnt = (navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack);
+          var doNotTrack = (dnt == "1" || dnt == "yes");
+        }
+        if (!doNotTrack) {
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'G-HCT9PR8XKE');
+        }
+      </script>
+  
+</head>
+<body class="container">
+  <nav class="navigation">
+  <div class="nav-left">
+    
+    <div class="nav-item nav-title">
+      <a href="https://wang-kai.github.io/"> Stay foolish</a>
+    </div>
+  </div>
+  <div class="nav-item nav-right fontawesome">
+    <div class="nav-item nav-menu">
+      
+      <a href="/about/"> About</a>
+      
+    </div>
+    <a href="https://github.com/wang-kai" target="_blank">
+      <i title="GitHub" class="fab fa-github"></i>
+    </a>
+  </div>
+</nav>
+
+  
+<article class="markdown-body">
+  <header class="post-header">
+    <h1 style="text-align: left; margin-left: 0; padding-left: 0;" >go-querystring：把结构体转为 URL query string 的利器</h1>
+    <div class="post-metadata">
+    
+      <time datetime="2022-05-03T11:31:43&#43;08:00">May 03, 2022</time> &nbsp; 
+    
+    
+    
+    
+    
+      <i class="far fa-clock"></i>
+      
+      
+      
+      
+        3 min
+      
+      36 s
+      &nbsp;
+    
+    
+    </div>
+  </header>
+
+  
+
+  <div>
+    <h2 id="需求场景">需求场景</h2>
+<p>后端服务在调用第三方 API 的时候，常见的需求就是构建 URL query string。在 go 标准包中有 <a href="https://pkg.go.dev/net/url">net/url</a> 来解决这个问题，<code>url.Values</code> 的本质是一个 <code>map[string][]string</code>， 且提供一系列方法(Add、Del、Set)来操作参数，最终通过 <code>Encode()</code> 方法把 map 转为 URL query string。但其中会牵扯到一些重复性工作，比如：</p>
+<ol>
+<li>类型转换，要把 int、bool 等转为 string</li>
+<li>判断字段是否空或零值的处理逻辑</li>
+</ol>
+<p>针对这个问题，google 开源的 <a href="https://github.com/google/go-querystring">go-querystring</a>  可以优雅简洁的解决这类重复性工作。</p>
+<h2 id="使用介绍">使用介绍</h2>
+<p>整个 go-querystring 库对外仅暴露了一个方法 <code>func Values(v interface{}) (url.Values, error)</code>，该方法接收一个结构体，返回值是一个填充好数据的 <code>url.Values</code>。</p>
+<p>默认的，URL query string 中 key 值是结构体字段名。如果字段不需要被编码，可以写上 <code>url:&quot;-&quot;</code> ，对于需要忽略空值的场景，要加上 <code>omitempty</code>，实例如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">type</span> GetPodsReq <span style="color:#8be9fd;font-style:italic">struct</span> {
+</span></span><span style="display:flex;"><span>	ClusterID <span style="color:#8be9fd">int64</span>  <span style="color:#f1fa8c">`form:&#34;cluster_id&#34; url:&#34;cluster_id,omitempty&#34;`</span>
+</span></span><span style="display:flex;"><span>	Nodenames <span style="color:#8be9fd">string</span> <span style="color:#f1fa8c">`form:&#34;nodenames&#34; url:&#34;nodenames,omitempty&#34;`</span>
+</span></span><span style="display:flex;"><span>	Selector  <span style="color:#8be9fd">string</span> <span style="color:#f1fa8c">`form:&#34;selector&#34; url:&#34;selector,omitempty&#34;`</span>
+</span></span><span style="display:flex;"><span>	Hostnames <span style="color:#8be9fd">string</span> <span style="color:#f1fa8c">`form:&#34;hostnames&#34; url:&#34;hostnames,omitempty&#34;`</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>将结构体转为 query string 十分简单，仅需要一个  Values 方法调用即可把结构体转为 <code>url.Values</code>，然后通过 <code>url.Values</code> 的  Encode 方法构建出来 query string。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>v, err <span style="color:#ff79c6">:=</span> query.<span style="color:#50fa7b">Values</span>(req)
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">if</span> err <span style="color:#ff79c6">!=</span> <span style="color:#ff79c6">nil</span> {
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">return</span> <span style="color:#ff79c6">nil</span>, err
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>url <span style="color:#ff79c6">:=</span> fmt.<span style="color:#50fa7b">Sprintf</span>(<span style="color:#f1fa8c">&#34;%s/%s?%s&#34;</span>, c.Domain, PathGetPods, v.<span style="color:#50fa7b">Encode</span>())
+</span></span></code></pre></div><h2 id="使用-go-querystring-改造老代码">使用 go-querystring 改造老代码</h2>
+<p>在之前的工程代码中，我用了很多 if 判断来一个个加入 query 参数，有多少个参数，就要做多少次 if 判断。并且使用了 <code>net/url</code> 的一些其他方法，最终 encode 出 HTTP 请求的 URL。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span>queryParams <span style="color:#ff79c6">:=</span> url.Values{}
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// 一个个判断参数，并且对于非 string 类型需要做转换</span>
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">if</span> req.ClusterID <span style="color:#ff79c6">!=</span> <span style="color:#bd93f9">0</span> {
+</span></span><span style="display:flex;"><span>  queryParams.<span style="color:#50fa7b">Add</span>(<span style="color:#f1fa8c">&#34;cluster_id&#34;</span>, fmt.<span style="color:#50fa7b">Sprintf</span>(<span style="color:#f1fa8c">&#34;%d&#34;</span>, req.ClusterID))
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">if</span> req.Selector <span style="color:#ff79c6">!=</span> <span style="color:#f1fa8c">&#34;&#34;</span> {
+</span></span><span style="display:flex;"><span>  queryParams.<span style="color:#50fa7b">Add</span>(<span style="color:#f1fa8c">&#34;selector&#34;</span>, req.Selector)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">if</span> req.Nodenames <span style="color:#ff79c6">!=</span> <span style="color:#f1fa8c">&#34;&#34;</span> {
+</span></span><span style="display:flex;"><span>  queryParams.<span style="color:#50fa7b">Add</span>(<span style="color:#f1fa8c">&#34;nodenames&#34;</span>, req.Nodenames)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">if</span> req.Hostnames <span style="color:#ff79c6">!=</span> <span style="color:#f1fa8c">&#34;&#34;</span> {
+</span></span><span style="display:flex;"><span>  queryParams.<span style="color:#50fa7b">Add</span>(<span style="color:#f1fa8c">&#34;hostnames&#34;</span>, req.Hostnames)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// 构建 url 结构体</span>
+</span></span><span style="display:flex;"><span>casterURL, err <span style="color:#ff79c6">:=</span> url.<span style="color:#50fa7b">Parse</span>(fmt.<span style="color:#50fa7b">Sprintf</span>(<span style="color:#f1fa8c">&#34;%s/%s&#34;</span>, c.Domain, PathGetPods))
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">if</span> err <span style="color:#ff79c6">!=</span> <span style="color:#ff79c6">nil</span> {
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">return</span> <span style="color:#ff79c6">nil</span>, err
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>casterURL.RawQuery = queryParams.<span style="color:#50fa7b">Encode</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// 请求 URL</span>
+</span></span><span style="display:flex;"><span>c.<span style="color:#50fa7b">get</span>(ctx, casterURL.<span style="color:#50fa7b">String</span>(), resp)
+</span></span></code></pre></div><p>使用了 go-querystring 包后，代码就可以变得很简洁</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// 使用 query library 来填充结构体值到 url.Value</span>
+</span></span><span style="display:flex;"><span>v, err <span style="color:#ff79c6">:=</span> query.<span style="color:#50fa7b">Values</span>(req)
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">if</span> err <span style="color:#ff79c6">!=</span> <span style="color:#ff79c6">nil</span> {
+</span></span><span style="display:flex;"><span>  <span style="color:#ff79c6">return</span> <span style="color:#ff79c6">nil</span>, err
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// 构造请求的 url string</span>
+</span></span><span style="display:flex;"><span>url <span style="color:#ff79c6">:=</span> fmt.<span style="color:#50fa7b">Sprintf</span>(<span style="color:#f1fa8c">&#34;%s/%s?%s&#34;</span>, c.Domain, PathGetPods, v.<span style="color:#50fa7b">Encode</span>())
+</span></span><span style="display:flex;"><span>c.<span style="color:#50fa7b">get</span>(ctx, url, resp)
+</span></span></code></pre></div><h2 id="总结">总结</h2>
+<p>go-querystring 是一个面向问题十分单一，手段又十分简洁的 library。简而言之，其就干了一件事情：<strong>把自定义的结构体转为 url.Values</strong>。面向问题十分专注，解决手段又十分极致，这也是每一个开源项目需要学习和借鉴的。</p>
+<h2 id="引用">引用</h2>
+<ul>
+<li><a href="https://github.com/google/go-querystring">go-querystring</a></li>
+<li><a href="https://pkg.go.dev/github.com/google/go-querystring/query#section-documentation">package godocs</a></li>
+</ul>
+
+  </div>
+
+  <footer class="post-footer">
+    
+
+    
+    <div class="post-tags">
+      <i class="fas fa-tags"></i>
+      
+        <a href="/tags/go">Go</a>
+        &nbsp;
+      
+    </div>
+    
+
+    
+    
+  </footer>
+  
+  <div class="comments">
+  <div class="comments">
+
+
+
+</div>
+  </div>
+</article>
+
+  <div class="foot">
+  
+  &copy; 2022 - 2025 &#183;
+  <a href="/"> Stay foolish </a> &#183;
+  Theme <a href="https://github.com/RainerChiang/simpleness">Simpleness</a> Powered by <a href="https://gohugo.io/">Hugo</a> &#183;
+  <a href="#"><i class="fas fa-chevron-up"></i></a>
+</div>
+</body>
+  <script src="/js/lazyload.min.js"></script>
+<script>
+  var lazyImage = new LazyLoad({container: document.getElementById('article')});
+</script>
+
+
+
+
+</html>

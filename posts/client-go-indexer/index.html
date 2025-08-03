@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="cn">
+  <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="generator" content="Hugo 0.148.2">
+  <title> client-go indexer 内部原理及使用 | Stay foolish </title>
+  <meta name="description" content="A simple and concise hugo theme.">
+  <link rel="stylesheet" href="https://wang-kai.github.io/css/simpleness.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.1.0/github-markdown-light.css"
+    integrity="sha512-1d9gwwC3dNW3O+lGwY8zTQrh08a41Ejci46DdzY1aQbqi/7Qr8Asp4ycWPsoD52tKXKrgu8h/lSpig1aAkvlMw=="
+    crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="canonical" href="https://wang-kai.github.io/posts/client-go-indexer/">
+  <link rel="alternate" type="application/rss+xml" href="" title="Stay foolish">
+  
+  
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/css/all.min.css" rel="stylesheet">
+  
+  
+      <script async src="https://www.googletagmanager.com/gtag/js?id=G-HCT9PR8XKE"></script>
+      <script>
+        var doNotTrack = false;
+        if ( false ) {
+          var dnt = (navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack);
+          var doNotTrack = (dnt == "1" || dnt == "yes");
+        }
+        if (!doNotTrack) {
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', 'G-HCT9PR8XKE');
+        }
+      </script>
+  
+</head>
+<body class="container">
+  <nav class="navigation">
+  <div class="nav-left">
+    
+    <div class="nav-item nav-title">
+      <a href="https://wang-kai.github.io/"> Stay foolish</a>
+    </div>
+  </div>
+  <div class="nav-item nav-right fontawesome">
+    <div class="nav-item nav-menu">
+      
+      <a href="/about/"> About</a>
+      
+    </div>
+    <a href="https://github.com/wang-kai" target="_blank">
+      <i title="GitHub" class="fab fa-github"></i>
+    </a>
+  </div>
+</nav>
+
+  
+<article class="markdown-body">
+  <header class="post-header">
+    <h1 style="text-align: left; margin-left: 0; padding-left: 0;" >client-go indexer 内部原理及使用</h1>
+    <div class="post-metadata">
+    
+      <time datetime="2025-08-03T06:51:04Z">August 03, 2025</time> &nbsp; 
+    
+    
+    
+    
+    
+      <i class="far fa-clock"></i>
+      
+      
+      
+      
+        6 min
+      
+      28 s
+      &nbsp;
+    
+    
+    </div>
+  </header>
+
+  
+
+  <div>
+    <p>当我们使用 client-go 去 listWatch 一个资源对象时，其中 informer 内部主要执行以下几个步骤：</p>
+<ol>
+<li>reflector 先 List 全量资源，获取到 resourceVersion 后，开始 watch resourceVersion 之后的事件</li>
+<li>每个 watch 事件（包含事件类型、资源对象）被加入 DeltaFIFO 队列</li>
+<li>Informer 从 DeltaFIFO 取出 delta 事件开始处理，更新 indexer 内数据</li>
+<li>Informer 根据事件类型，触发用户定义的处理函数
+Indexer 是 client-go informer 中负责存储数据的模块，是真正最占用内存的模块。本文着重于步骤三，分析 indexer 是如何存储数据以及检索数据的。</li>
+</ol>
+<p>
+<figure>
+    <img src="/k8s-list-watch.png" alt="">
+    <figcaption>The working mechanism of an informer</figcaption>
+</figure>
+</p>
+<ul>
+<li><a href="#%E6%9C%AF%E8%AF%AD%E5%AF%B9%E9%BD%90">术语对齐</a></li>
+<li><a href="#indexer-%E5%86%85%E9%83%A8%E5%AE%9E%E7%8E%B0">Indexer 内部实现</a></li>
+<li><a href="#indexer-%E4%BD%BF%E7%94%A8">Indexer 使用</a>
+<ul>
+<li><a href="#%E5%9F%BA%E7%A1%80%E4%BD%BF%E7%94%A8">基础使用</a></li>
+<li><a href="#%E6%B3%A8%E6%84%8F%E7%82%B9">注意点</a></li>
+</ul>
+</li>
+<li><a href="#%E6%80%BB%E7%BB%93">总结</a></li>
+</ul>
+<h2 id="术语对齐">术语对齐</h2>
+<p>Indexer 存储涉及多类 K/V，为了表达清晰，文章开始前先对一些特定名词做清晰定义：</p>
+<ol>
+<li>资源对象 Key：一个资源对象默认的唯一 key (通常是 namespace/name)</li>
+<li>索引函数：indexer 支持用户自定义索引计算函数 <code>type IndexFunc func(obj interface{}) ([]string, error)</code>，满足用户按照自己的需求索引资源对象。</li>
+<li>索引函数名：每一个索引函数都有一个唯一名字</li>
+<li>索引值：索引函数会针对资源对象计算出一个或多个索引 key，本文内称作索引值</li>
+</ol>
+<h2 id="indexer-内部实现">Indexer 内部实现</h2>
+<p>Indexer 在 Store interface（负责数据的增删改查）基础上增加了索引机制。用户可以自定义索引函数，然后按索引函数计算出的索引值来查询。从 interface 定义可以看出，自定义的 index 相关数据仅支持查询，不支持增删改。因为自定义 index 的相关增删改均是在 Store 相关操作后顺带执行。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">type</span> Indexer <span style="color:#8be9fd;font-style:italic">interface</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// 基础的增删改查</span>
+</span></span><span style="display:flex;"><span>        Store
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// 返回与 obj 在 indexName 索引函数下有交集的资源对象集合</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">Index</span>(indexName <span style="color:#8be9fd">string</span>, obj <span style="color:#8be9fd;font-style:italic">interface</span>{}) ([]<span style="color:#8be9fd;font-style:italic">interface</span>{}, <span style="color:#8be9fd">error</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// 返回 indexName 索引函数下，索引值包含 indexedValue 的资源对象 key</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">IndexKeys</span>(indexName, indexedValue <span style="color:#8be9fd">string</span>) ([]<span style="color:#8be9fd">string</span>, <span style="color:#8be9fd">error</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// 返回 indexName 索引函数下，所有的索引值。</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">ListIndexFuncValues</span>(indexName <span style="color:#8be9fd">string</span>) []<span style="color:#8be9fd">string</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// 返回 indexName 索引函数下，索引值为 indexedValue 的所有资源对象</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">ByIndex</span>(indexName, indexedValue <span style="color:#8be9fd">string</span>) ([]<span style="color:#8be9fd;font-style:italic">interface</span>{}, <span style="color:#8be9fd">error</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">GetIndexers</span>() Indexers
+</span></span><span style="display:flex;"><span>        <span style="color:#50fa7b">AddIndexers</span>(newIndexers Indexers) <span style="color:#8be9fd">error</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>client-go library 中默认使用的 indexer interface 实现是 threadSafeMap。其数据结构十分简单：</p>
+<ol>
+<li>Lock 读写锁，为了实现线程安全（正如它的名字那样）</li>
+<li>Items 是一个 map，通过 K/V 来存储基础的资源对象。比如 test-namespace/test-pod  =&gt; v1.Pod{xx}</li>
+<li>Index 主要实现索引相关的接口</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// threadSafeMap implements ThreadSafeStore</span>
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">type</span> threadSafeMap <span style="color:#8be9fd;font-style:italic">struct</span> {
+</span></span><span style="display:flex;"><span>        lock  sync.RWMutex
+</span></span><span style="display:flex;"><span>        items <span style="color:#8be9fd;font-style:italic">map</span>[<span style="color:#8be9fd">string</span>]<span style="color:#8be9fd;font-style:italic">interface</span>{}
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// index implements the indexing functionality</span>
+</span></span><span style="display:flex;"><span>        index <span style="color:#ff79c6">*</span>storeIndex
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>下一步进一步分析 storeIndex，主要由两个字段组成：</p>
+<ol>
+<li>Indexers 是一个索引函数存储，Key 为索引函数名，value 为 func(obj interface{}) ([]string, error) 索引函数，索引函数用来计算出一个资源对象的索引值，一个索引函数可以对一个资源对象计算出多个索引值</li>
+<li>indices 是一个 map[string]Index, 其中 Index 是一个 map，value 为 map[string]sets.String 。外层 map 中的 key 用来存放索引函数名，内层 map 中 key 用来存放索引函数值，value 为资源对象 key。一句话来讲就是：indices 用来存储每个索引函数构建出的索引表。</li>
+</ol>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// storeIndex implements the indexing functionality for Store interface</span>
+</span></span><span style="display:flex;"><span><span style="color:#8be9fd;font-style:italic">type</span> storeIndex <span style="color:#8be9fd;font-style:italic">struct</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// indexers maps a name to an IndexFunc</span>
+</span></span><span style="display:flex;"><span>        indexers Indexers
+</span></span><span style="display:flex;"><span>        <span style="color:#6272a4">// indices maps a name to an Index</span>
+</span></span><span style="display:flex;"><span>        indices Indices
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>总结下来，indexer 从存储结构上看有 3 个 map:</p>
+<ul>
+<li>items 存储真正的资源对象，承载最基础的 KV 检索能力</li>
+<li>storeIndex.indexers 存储索引函数名到索引函数的映射</li>
+<li>indexers.indices 是一个嵌套 map，外层 map 为索引函数名，内层 map 为该索引函数计算出的索引值到资源对象 key 的映射，是一个二级检索</li>
+</ul>
+<p>
+<img src="/indexer-struct.png#center" alt="">
+</p>
+<h2 id="indexer-使用">Indexer 使用</h2>
+<h3 id="基础使用">基础使用</h3>
+<p>添加 indexer，定义名为 byHostIP 的 indexerFunc ，将 pod.Status.HostIP 作为索引值。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// 1. 创建 SharedInformerFactory</span>
+</span></span><span style="display:flex;"><span>factory <span style="color:#ff79c6">:=</span> informers.<span style="color:#50fa7b">NewSharedInformerFactory</span>(clientset, <span style="color:#bd93f9">30</span><span style="color:#ff79c6">*</span>time.Second)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// 2. 获取 Pod Informer</span>
+</span></span><span style="display:flex;"><span>podInformer <span style="color:#ff79c6">:=</span> factory.<span style="color:#50fa7b">Core</span>().<span style="color:#50fa7b">V1</span>().<span style="color:#50fa7b">Pods</span>().<span style="color:#50fa7b">Informer</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#6272a4">// 3. 添加自定义 IndexerFunc，索引 key 为 pod.Status.HostIP</span>
+</span></span><span style="display:flex;"><span>indexName <span style="color:#ff79c6">:=</span> <span style="color:#f1fa8c">&#34;byHostName&#34;</span>
+</span></span><span style="display:flex;"><span>err = podInformer.<span style="color:#50fa7b">AddIndexers</span>(cache.Indexers{
+</span></span><span style="display:flex;"><span>    indexName: <span style="color:#8be9fd;font-style:italic">func</span>(obj <span style="color:#8be9fd;font-style:italic">interface</span>{}) ([]<span style="color:#8be9fd">string</span>, <span style="color:#8be9fd">error</span>) {
+</span></span><span style="display:flex;"><span>        pod, ok <span style="color:#ff79c6">:=</span> obj.(<span style="color:#ff79c6">*</span>v1.Pod)
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">if</span> !ok {
+</span></span><span style="display:flex;"><span>            <span style="color:#ff79c6">return</span> []<span style="color:#8be9fd">string</span>{}, <span style="color:#ff79c6">nil</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">if</span> pod.Status.HostIP <span style="color:#ff79c6">!=</span> <span style="color:#f1fa8c">&#34;&#34;</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#6272a4">// 使用 HostIP 作为索引</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#ff79c6">return</span> []<span style="color:#8be9fd">string</span>{pod.Status.HostIP}, <span style="color:#ff79c6">nil</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#ff79c6">return</span> []<span style="color:#8be9fd">string</span>{}, <span style="color:#ff79c6">nil</span>
+</span></span><span style="display:flex;"><span>    },
+</span></span><span style="display:flex;"><span>})
+</span></span></code></pre></div><p>当需要查看一个 node 上有哪些 pod 时，调用 indexer.ByIndex 传入 HostIP 可拿到 node 上的所有 pod。</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#282a36;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#6272a4">// 使用索引获取 Pod</span>
+</span></span><span style="display:flex;"><span>indexer <span style="color:#ff79c6">:=</span> podInformer.<span style="color:#50fa7b">GetIndexer</span>()
+</span></span><span style="display:flex;"><span>pods, err <span style="color:#ff79c6">:=</span> indexer.<span style="color:#50fa7b">ByIndex</span>(indexName, <span style="color:#f1fa8c">&#34;172.18.0.2&#34;</span>)
+</span></span><span style="display:flex;"><span><span style="color:#ff79c6">if</span> err <span style="color:#ff79c6">!=</span> <span style="color:#ff79c6">nil</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#8be9fd;font-style:italic">panic</span>(err)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>fmt.<span style="color:#50fa7b">Printf</span>(<span style="color:#f1fa8c">&#34;Pods on HostIP 172.18.0.2: %d\n&#34;</span>, <span style="color:#8be9fd;font-style:italic">len</span>(pods))
+</span></span></code></pre></div><h3 id="注意点">注意点</h3>
+<p>通过 indexer 获取的数据仅可用于只读，不可随意修改。修改 indexer 获取的数据是非线程安全的，且修改后不会自动重新构建索引，会破坏了索引的有效性。</p>
+<h2 id="总结">总结</h2>
+<p>Indexer 作为 informer 缓存资源对象的模块，其实现并不复杂。自定义索引函数机制使得数据检索更加灵活与便捷。在合适的场景下构建索引函数可以提升开发效率、和检索效率。</p>
+
+  </div>
+
+  <footer class="post-footer">
+    
+
+    
+
+    
+    
+  </footer>
+  
+  <div class="comments">
+  <div class="comments">
+
+
+
+</div>
+  </div>
+</article>
+
+  <div class="foot">
+  
+  &copy; 2022 - 2025 &#183;
+  <a href="/"> Stay foolish </a> &#183;
+  Theme <a href="https://github.com/RainerChiang/simpleness">Simpleness</a> Powered by <a href="https://gohugo.io/">Hugo</a> &#183;
+  <a href="#"><i class="fas fa-chevron-up"></i></a>
+</div>
+</body>
+  <script src="/js/lazyload.min.js"></script>
+<script>
+  var lazyImage = new LazyLoad({container: document.getElementById('article')});
+</script>
+
+
+
+
+</html>
